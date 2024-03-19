@@ -9,7 +9,7 @@ output:
 ---
 
 ```
-This is to give you some tools for calculating the Fightin Words statistic, extracting top-ranked terms, and plotting. This tutorial is adapted from Burt Monroe's (the original author of the paper).
+This is to give you some tools for calculating the Fightin Words statistic, extracting top-ranked terms, and plotting. This tutorial is adapted from Burt Monroe's  (the original author of the paper/method).
 ```
 
 ## Load Libraries (install them if you haven't)
@@ -21,6 +21,7 @@ library(dplyr)
 library(knitr)
 library(ggplot2)
 library(ggrepel)
+library(stm)
 ```
 
 ## Load the FW Functions
@@ -29,7 +30,7 @@ library(ggrepel)
 
 ############## FIGHTIN' WORDS ESTIMATION
 
-fwgroups <- function(dtm, groups, pair = NULL, weights = rep(1,nrow(dtm)), k.prior = .1) {
+fwgroups <- function(dtm, groups, pair = NULL, weights = rep(1,nrow(dtm)), k.prior = 0.1) {
   
   weights[is.na(weights)] <- 0
   
@@ -114,13 +115,14 @@ fw.ggplot.groups <- function(fw.ch, groups.use = as.factor(rownames(fw.ch$zeta))
     theme(axis.ticks=element_blank(), axis.text=element_blank() ) +
     ylim(-max.words,40) +
     facet_grid(groups.use ~ .) +
-    geom_text_repel(aes(label = term), size = rankplot$plotsize, point.padding=.05,
+    geom_text_repel(aes(label = term), size = rankplot$plotsize, point.padding=.05, max.overlaps = 1000,
                     box.padding = unit(0.20, "lines"), show.legend=F) +
     scale_colour_manual(values = alpha(colorpalette, .7)) + 
-#    labs(x="Terms used more frequently overall →", y="Terms used more frequently by group →",  title=title, subtitle=subtitle , caption = caption) 
-    labs(x=paste("Terms used more frequently overall -->"), y=paste("Terms used more frequently by group -->"),  title=title, subtitle=subtitle , caption = caption) 
+    #labs(x="Terms used more frequently overall →", y="Terms used more frequently by group →",  title=title, subtitle=subtitle , caption=caption) 
+    labs(x=paste("Terms used more frequently overall -->"), y=paste("Terms used more frequently by group -->"),  title=title, subtitle=subtitle , caption=caption) 
   
 }
+
 fw.keys <- function(fw.ch,n.keys=10) {
   n.groups <- nrow(fw.ch$zeta)
   keys <- matrix("",n.keys,n.groups)
@@ -137,28 +139,17 @@ fw.keys <- function(fw.ch,n.keys=10) {
 
 ## Reading and Preparing Data 
 
-- We will use a variant of the "PoliBlogs08" data set (Eisenstein and Xing 2010). 
 - The Poliblogs08 data set consists of 13,246 blogposts scraped from 6 blogs, along with a "rating" as "Conservative" or "Liberal."
+- We will use a variant of the "PoliBlogs08" data set (Eisenstein and Xing 2010). 
 
 ```{r}
-poliblogsFull <- read.csv("poliblogs2008.csv", colClasses = c("character", "character", "character", "factor", "integer", "factor"))
-summary(poliblogsFull)
+poliblogsFull <- read.csv("/Users/taegyoon/Dropbox/Materials/teaching/spring24_nlp/week_04_keyword/poliblogs2008.csv", colClasses = c("character", "character", "character", "factor", "integer", "factor"))
+head(poliblogsFull)
 ```
 
-- For exposition purposes later, it will help to note some basics here. 
-  - The `day` variable indicates the day of 2008 the blog was written, running from 1 to 366 (2008 was a leap year). 
-  - The `blog` variable indicates which one of the following six blogs posted the text for that observation: 
+Today we'll be using a sample of 5,000 blogs, provided in the **stm** package (a package for structural topic modeling): `poliblog5k.meta`
 
-    * db: Digby (Liberal, single author [? not sure that's true])
-    * tp: Think Progress (Liberal, multiple authors)
-    * tpm: Talking Points Memo (Liberal, multiple authors)
-    * mm: Michelle Malkin (Conservative, single author)
-    * at: American Thinker (Conservative, multiple authors)
-    * ha: Hot Air (Conservative, single author)
-
-- Today we'll be using a sample of 5,000 blogs, provided in the **stm** package (a package for structural topic modeling, which we will discuss this later in the course): `poliblog5k.meta`
-
-The `poliblog5k.meta` object also contains a small snippet---the first 50 characters---of the text in the column `poliblog5k.meta$text`. We will create our own slightly larger snippets (200 characters) for use in diagnostics later.
+- The `poliblog5k.meta` object also contains a small snippet---the first 50 characters---of the text in the column `poliblog5k.meta$text`. We will create our own slightly larger snippets (200 characters) for use in diagnostics later.
 
 Let's take a look at the first three documents in all three of these formats:
 ```{r}
@@ -196,6 +187,7 @@ tokens <- tokens_wordstem(tokens)
 tokens <- tokens_tolower(tokens)
 ```
 
+
 ## Building a document-feature matrix
 
 ```{r}
@@ -222,8 +214,8 @@ kable(fwkeys.blogideo)
 - Plot the Fightin' Words
 ```{r, fig.height=10, fig.width=8}
 p.fw.blogideo <- fw.ggplot.groups(fw.blogideo,
-                                  sizescale = 4,
-                                  max.words = 200,
+                                  sizescale = 5,
+                                  max.words = 100,
                                   max.countrank = 400,
                                   colorpalette = c("red","blue"))
 p.fw.blogideo
