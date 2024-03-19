@@ -1,0 +1,230 @@
+---
+title: "HSS 510 Week 4 Tutorial: Fightin' Words"
+date: 2024-03-20
+author: "Taegyoon Kim"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```
+This is to give you some tools for calculating the Fightin Words statistic, extracting top-ranked terms, and plotting. This tutorial is adapted from Burt Monroe's (the original author of the paper).
+```
+
+## Load Libraries (install them if you haven't)
+
+```{r}
+library(quanteda)
+library(tidyr)
+library(dplyr)
+library(knitr)
+library(ggplot2)
+library(ggrepel)
+```
+
+## Load the FW Functions
+
+```{r}
+
+############## FIGHTIN' WORDS ESTIMATION
+
+fwgroups <- function(dtm, groups, pair = NULL, weights = rep(1,nrow(dtm)), k.prior = .1) {
+  
+  weights[is.na(weights)] <- 0
+  
+  weights <- weights/mean(weights)
+  
+  zero.doc <- rowSums(dtm)==0 | weights==0
+  zero.term <- colSums(dtm[!zero.doc,])==0
+  
+  dtm.nz <- apply(dtm[!zero.doc,!zero.term],2,"*", weights[!zero.doc])
+  
+  g.prior <- tcrossprod(rowSums(dtm.nz),colSums(dtm.nz))/sum(dtm.nz)
+  
+  # 
+  
+  g.posterior <- as.matrix(dtm.nz + k.prior*g.prior)
+  
+  groups <- groups[!zero.doc]
+  groups <- droplevels(groups)
+  
+  g.adtm <- as.matrix(aggregate(x=g.posterior,by=list(groups=groups),FUN=sum)[,-1])
+  rownames(g.adtm) <- levels(groups)
+  
+  g.ladtm <- log(g.adtm)
+  
+  g.delta <- t(scale( t(scale(g.ladtm, center=T, scale=F)), center=T, scale=F))
+  
+  g.adtm_w <- -sweep(g.adtm,1,rowSums(g.adtm)) # terms not w spoken by k
+  g.adtm_k <- -sweep(g.adtm,2,colSums(g.adtm)) # w spoken by groups other than k
+  g.adtm_kw <- sum(g.adtm) - g.adtm_w - g.adtm_k - g.adtm # total terms not w or k 
+  
+  g.se <- sqrt(1/g.adtm + 1/g.adtm_w + 1/g.adtm_k + 1/g.adtm_kw)
+  
+  g.zeta <- g.delta/g.se
+  
+  g.counts <- as.matrix(aggregate(x=dtm.nz, by = list(groups=groups), FUN=sum)[,-1])
+  
+  if (!is.null(pair)) {
+    pr.delta <- t(scale( t(scale(g.ladtm[pair,], center = T, scale =F)), center=T, scale=F))
+    pr.adtm_w <- -sweep(g.adtm[pair,],1,rowSums(g.adtm[pair,]))
+    pr.adtm_k <- -sweep(g.adtm[pair,],2,colSums(g.adtm[pair,])) # w spoken by groups other than k
+    pr.adtm_kw <- sum(g.adtm[pair,]) - pr.adtm_w - pr.adtm_k - g.adtm[pair,] # total terms not w or k
+    pr.se <- sqrt(1/g.adtm[pair,] + 1/pr.adtm_w + 1/pr.adtm_k + 1/pr.adtm_kw)
+    pr.zeta <- pr.delta/pr.se
+    
+    return(list(zeta=pr.zeta[1,], delta=pr.delta[1,],se=pr.se[1,], counts = colSums(dtm.nz), acounts = colSums(g.adtm)))
+  } else {
+    return(list(zeta=g.zeta,delta=g.delta,se=g.se,counts=g.counts,acounts=g.adtm))
+  }
+}
+
+############## FIGHTIN' WORDS PLOTTING FUNCTION
+
+# helper function
+
+makeTransparent<-function(someColor, alpha=100)
+{
+  newColor<-col2rgb(someColor)
+  apply(newColor, 2, function(curcoldata){rgb(red=curcoldata[1], green=curcoldata[2],
+                                              blue=curcoldata[3],alpha=alpha, maxColorValue=255)})
+}
+
+fw.ggplot.groups <- function(fw.ch, groups.use = as.factor(rownames(fw.ch$zeta)), max.words = 50, max.countrank = 400, colorpalette=rep("black",length(groups.use)), sizescale=2, title="Comparison of Terms by Groups", subtitle = "", caption = "Group-specific terms are ordered by Fightin' Words statistic (Monroe, et al. 2008)") {
+  if (is.null(dim(fw.ch$zeta))) {## two-group fw object consists of vectors, not matrices
+    zetarankmat <- cbind(rank(-fw.ch$zeta),rank(fw.ch$zeta))
+    colnames(zetarankmat) <- groups.use
+    countrank <- rank(-(fw.ch$counts))
+  } else {
+    zetarankmat <- apply(-fw.ch$zeta[groups.use,],1,rank)
+    countrank <- rank(-colSums(fw.ch$counts))
+  }
+  wideplotmat <- as_tibble(cbind(zetarankmat,countrank=countrank))
+  wideplotmat$term=names(countrank)
+  #rankplot <- gather(wideplotmat, party, zetarank, 1:ncol(zetarankmat))
+  rankplot <- gather(wideplotmat, groups.use, zetarank, 1:ncol(zetarankmat))
+  rankplot$plotsize <- sizescale*(50/(rankplot$zetarank))^(1/4)
+  rankplot <- rankplot[rankplot$zetarank < max.words + 1 & rankplot$countrank<max.countrank+1,]
+  rankplot$groups.use <- factor(rankplot$groups.use,levels=groups.use)
+  
+  p <- ggplot(rankplot, aes((nrow(rankplot)-countrank)^1, -(zetarank^1), colour=groups.use)) + 
+    geom_point(show.legend=F,size=sizescale/2) + 
+    theme_classic() +
+    theme(axis.ticks=element_blank(), axis.text=element_blank() ) +
+    ylim(-max.words,40) +
+    facet_grid(groups.use ~ .) +
+    geom_text_repel(aes(label = term), size = rankplot$plotsize, point.padding=.05,
+                    box.padding = unit(0.20, "lines"), show.legend=F) +
+    scale_colour_manual(values = alpha(colorpalette, .7)) + 
+#    labs(x="Terms used more frequently overall →", y="Terms used more frequently by group →",  title=title, subtitle=subtitle , caption = caption) 
+    labs(x=paste("Terms used more frequently overall -->"), y=paste("Terms used more frequently by group -->"),  title=title, subtitle=subtitle , caption = caption) 
+  
+}
+fw.keys <- function(fw.ch,n.keys=10) {
+  n.groups <- nrow(fw.ch$zeta)
+  keys <- matrix("",n.keys,n.groups)
+  colnames(keys) <- rownames(fw.ch$zeta)
+  
+  for (g in 1:n.groups) {
+    keys[,g] <- names(sort(fw.ch$zeta[g,],dec=T)[1:n.keys])
+  }
+  keys
+}
+
+```
+
+
+## Reading and Preparing Data 
+
+- We will use a variant of the "PoliBlogs08" data set (Eisenstein and Xing 2010). 
+- The Poliblogs08 data set consists of 13,246 blogposts scraped from 6 blogs, along with a "rating" as "Conservative" or "Liberal."
+
+```{r}
+poliblogsFull <- read.csv("poliblogs2008.csv", colClasses = c("character", "character", "character", "factor", "integer", "factor"))
+summary(poliblogsFull)
+```
+
+- For exposition purposes later, it will help to note some basics here. 
+  - The `day` variable indicates the day of 2008 the blog was written, running from 1 to 366 (2008 was a leap year). 
+  - The `blog` variable indicates which one of the following six blogs posted the text for that observation: 
+
+    * db: Digby (Liberal, single author [? not sure that's true])
+    * tp: Think Progress (Liberal, multiple authors)
+    * tpm: Talking Points Memo (Liberal, multiple authors)
+    * mm: Michelle Malkin (Conservative, single author)
+    * at: American Thinker (Conservative, multiple authors)
+    * ha: Hot Air (Conservative, single author)
+
+- Today we'll be using a sample of 5,000 blogs, provided in the **stm** package (a package for structural topic modeling, which we will discuss this later in the course): `poliblog5k.meta`
+
+The `poliblog5k.meta` object also contains a small snippet---the first 50 characters---of the text in the column `poliblog5k.meta$text`. We will create our own slightly larger snippets (200 characters) for use in diagnostics later.
+
+Let's take a look at the first three documents in all three of these formats:
+```{r}
+poliblog5k.sample <- as.integer(rownames(poliblog5k.meta)) # the row indices from the original data
+poliblog5k.fulltext <- poliblogsFull$documents[poliblog5k.sample] # get the full text 
+poliblog5k.shorttext <- substr(poliblog5k.fulltext, 1, 200) # get the first 200 characters
+
+poliblog5k.fullmeta <- data.frame(doc_id = rownames(poliblog5k.meta), 
+                                  poliblog5k.meta, 
+                                  shorttext = poliblog5k.shorttext, 
+                                  fulltext = poliblog5k.fulltext, 
+                                  stringsAsFactors = FALSE)
+```
+
+```{r}
+poliblog5k.fullmeta$text[1]
+poliblog5k.fullmeta$shorttext[1]
+poliblog5k.fullmeta$fulltext[1]
+```
+
+
+## Preprocessing and tokenization
+
+```{r}
+poliblog5k.corpus <- quanteda::corpus(poliblog5k.fullmeta, # we first build a corpus
+                                      docid_field = "doc_id",
+                                      text_field = "fulltext")
+
+tokens <- quanteda::tokens(poliblog5k.corpus, 
+                 remove_numbers = TRUE, 
+                 remove_punct = TRUE, 
+                 remove_symbols = TRUE)
+tokens <- tokens_remove(tokens, stopwords("english"))
+tokens <- tokens_wordstem(tokens)
+tokens <- tokens_tolower(tokens)
+```
+
+## Building a document-feature matrix
+
+```{r}
+poliblog5k.dfm <- quanteda::dfm(tokens)
+poliblog5k.dfm <- dfm_trim(poliblog5k.dfm, min_docfreq=51, docfreq_type="count")
+dim(poliblog5k.dfm)
+```
+
+
+## Estiamte Fighting' Words
+
+```{r}
+fw.blogideo <- fwgroups(poliblog5k.dfm,
+                        groups = poliblog5k.fullmeta$rating)
+```
+
+- Get and show the top words per group by zeta.
+
+```{r echo=TRUE, results="asis"}
+fwkeys.blogideo <- fw.keys(fw.blogideo, n.keys=20)
+kable(fwkeys.blogideo)
+```
+
+- Plot the Fightin' Words
+```{r, fig.height=10, fig.width=8}
+p.fw.blogideo <- fw.ggplot.groups(fw.blogideo,
+                                  sizescale = 4,
+                                  max.words = 200,
+                                  max.countrank = 400,
+                                  colorpalette = c("red","blue"))
+p.fw.blogideo
+```
