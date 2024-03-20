@@ -12,7 +12,7 @@ output:
 This is to give you some tools for calculating the Fightin Words statistic, extracting top-ranked terms, and plotting. This tutorial is adapted from Burt Monroe's  (the original author of the paper/method).
 ```
 
-## Load Libraries (install them if you haven't)
+## Load Libraries (install them using `install.packages()` if you haven't)
 
 ```{r}
 library(quanteda)
@@ -28,7 +28,7 @@ library(stm)
 
 ```{r}
 
-############## FIGHTIN' WORDS ESTIMATION
+### fightin' words estimation
 
 fwgroups <- function(dtm, groups, pair = NULL, weights = rep(1,nrow(dtm)), k.prior = 0.1) {
   
@@ -81,9 +81,8 @@ fwgroups <- function(dtm, groups, pair = NULL, weights = rep(1,nrow(dtm)), k.pri
   }
 }
 
-############## FIGHTIN' WORDS PLOTTING FUNCTION
 
-# helper function
+### fightin' words plotting
 
 makeTransparent<-function(someColor, alpha=100)
 {
@@ -123,6 +122,8 @@ fw.ggplot.groups <- function(fw.ch, groups.use = as.factor(rownames(fw.ch$zeta))
   
 }
 
+### fightin' words table
+
 fw.keys <- function(fw.ch,n.keys=10) {
   n.groups <- nrow(fw.ch$zeta)
   keys <- matrix("",n.keys,n.groups)
@@ -140,60 +141,47 @@ fw.keys <- function(fw.ch,n.keys=10) {
 ## Reading and Preparing Data 
 
 - The Poliblogs08 data set consists of 13,246 blogposts scraped from 6 blogs, along with a "rating" as "Conservative" or "Liberal."
-- We will use a variant of the "PoliBlogs08" data set (Eisenstein and Xing 2010). 
 
 ```{r}
-poliblogsFull <- read.csv("/Users/taegyoon/Dropbox/Materials/teaching/spring24_nlp/week_04_keyword/poliblogs2008.csv", colClasses = c("character", "character", "character", "factor", "integer", "factor"))
+poliblogsFull <- read.csv("/Users/taegyoon/Dropbox/Materials/teaching/spring24_nlp/week_04_keyword/poliblogs2008.csv", colClasses = c("character", "character", "character", "factor", "integer", "factor")) # make sure that you define your own directory to the data
 head(poliblogsFull)
 ```
 
-Today we'll be using a sample of 5,000 blogs, provided in the **stm** package (a package for structural topic modeling): `poliblog5k.meta`
+- Today we'll be using a sample of 5,000 blogs from the Poliblogs08 data set, provided in the **stm** package (a package for structural topic modeling): `poliblog5k.meta`
+- The `poliblog5k.meta` object only contains a small snippet---the first 50 characters---of the text in the column `poliblog5k.meta$text`. 
+- We'll need full texts to estimate Fightin' Words
+- The following takes full texts from the original data set
 
-- The `poliblog5k.meta` object also contains a small snippet---the first 50 characters---of the text in the column `poliblog5k.meta$text`. We will create our own slightly larger snippets (200 characters) for use in diagnostics later.
-
-Let's take a look at the first three documents in all three of these formats:
 ```{r}
 poliblog5k.sample <- as.integer(rownames(poliblog5k.meta)) # the row indices from the original data
-poliblog5k.fulltext <- poliblogsFull$documents[poliblog5k.sample] # get the full text 
-poliblog5k.shorttext <- substr(poliblog5k.fulltext, 1, 200) # get the first 200 characters
-
-poliblog5k.fullmeta <- data.frame(doc_id = rownames(poliblog5k.meta), 
-                                  poliblog5k.meta, 
-                                  shorttext = poliblog5k.shorttext, 
-                                  fulltext = poliblog5k.fulltext, 
-                                  stringsAsFactors = FALSE)
-```
-
-```{r}
-poliblog5k.fullmeta$text[1]
-poliblog5k.fullmeta$shorttext[1]
-poliblog5k.fullmeta$fulltext[1]
+poliblog5k.meta$fulltext <- poliblogsFull$documents[poliblog5k.sample] # get the full text from the original data set 
 ```
 
 
 ## Preprocessing and tokenization
 
 ```{r}
-poliblog5k.corpus <- quanteda::corpus(poliblog5k.fullmeta, # we first build a corpus
-                                      docid_field = "doc_id",
-                                      text_field = "fulltext")
+poliblog5k.corpus <- corpus(poliblog5k.meta, # we first build a corpus
+                            text_field = "fulltext")
 
-tokens <- quanteda::tokens(poliblog5k.corpus, 
-                 remove_numbers = TRUE, 
-                 remove_punct = TRUE, 
-                 remove_symbols = TRUE)
-tokens <- tokens_remove(tokens, stopwords("english"))
-tokens <- tokens_wordstem(tokens)
-tokens <- tokens_tolower(tokens)
+tokens <- poliblog5k.corpus %>%
+  tokens(remove_numbers = TRUE, 
+         remove_punct = TRUE, 
+         remove_symbols = TRUE) %>%
+  tokens_remove(stopwords("english")) %>%
+  tokens_wordstem() %>%
+  tokens_tolower()
 ```
 
 
 ## Building a document-feature matrix
 
 ```{r}
-poliblog5k.dfm <- quanteda::dfm(tokens)
-poliblog5k.dfm <- dfm_trim(poliblog5k.dfm, min_docfreq=51, docfreq_type="count")
-dim(poliblog5k.dfm)
+poliblog5k.dfm <- dfm(tokens) # create a document-feature matrix
+poliblog5k.dfm <- dfm_trim(poliblog5k.dfm, # remove words that appear in at least 50 documents
+                           min_docfreq = 51, 
+                           docfreq_type = "count")
+dim(poliblog5k.dfm) # check dimension
 ```
 
 
@@ -201,22 +189,25 @@ dim(poliblog5k.dfm)
 
 ```{r}
 fw.blogideo <- fwgroups(poliblog5k.dfm,
-                        groups = poliblog5k.fullmeta$rating)
+                        groups = poliblog5k.dfm$rating)
 ```
 
-- Get and show the top words per group by zeta.
+
+## Get and show the top words per group by zeta
 
 ```{r echo=TRUE, results="asis"}
 fwkeys.blogideo <- fw.keys(fw.blogideo, n.keys=20)
 kable(fwkeys.blogideo)
 ```
 
-- Plot the Fightin' Words
+
+## Plot the Fightin' Words
+
 ```{r, fig.height=10, fig.width=8}
 p.fw.blogideo <- fw.ggplot.groups(fw.blogideo,
-                                  sizescale = 5,
-                                  max.words = 100,
-                                  max.countrank = 400,
+                                  sizescale = 5, # the size of the dot/text
+                                  max.words = 100, # the number of words to display based on zeta
+                                  max.countrank = 400, # the number of words to display based on frequencies
                                   colorpalette = c("red","blue"))
 p.fw.blogideo
 ```
