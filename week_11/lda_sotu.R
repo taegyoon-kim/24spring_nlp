@@ -14,7 +14,7 @@
 
 ### packages -------------------------
 
-# install packman
+# install pacman
 
 if (!require("pacman", quietly = TRUE)) {
   install.packages("pacman") # check if "pacman" is installed and install if not
@@ -47,13 +47,14 @@ View(df)
 
 # create corpus object
 
-corpus <- Corpus(DataframeSource(df)) 
+corpus <- Corpus(DataframeSource(df)) # from the tm package
 
 # load stop words (unlikely these signal topics/themes)
 
 english_stopwords <- readLines(
   "https://slcladal.github.io/resources/stopwords_en.txt", 
   encoding = "UTF-8")
+length(english_stopwords)
 head(english_stopwords)
 
 # pre-processing chain
@@ -97,7 +98,7 @@ df <- df[sel_idx, ]
 
 result <- FindTopicsNumber(
   dtm,
-  topics = seq(from = 10, to = 50, by = 5),
+  topics = seq(from = 10, to = 40, by = 10),
   metrics = c("Griffiths2004", # perplexity
               "CaoJuan2009"), # coherence
   method = "Gibbs",
@@ -118,11 +119,11 @@ result <- get(load(file = "/Users/taegyoon/result.RData"))
 FindTopicsNumber_plot(result)
 
 
-### estimate a model with K = 20 -------------------------
+### estimate a model with K = 40 -------------------------
 
 # number of topics
 
-K <- 20
+K <- 40
 
 # set random number generator seed
 
@@ -130,7 +131,7 @@ set.seed(9161)
 
 # estimate the LDA model, inference via 1000 iterations of Gibbs sampling
 
-lda_20 <- LDA(
+lda_40 <- LDA(
   dtm, 
   K, 
   method = "Gibbs", 
@@ -138,11 +139,11 @@ lda_20 <- LDA(
 
 # posterior distributions 
 
-tmResult <- posterior(lda_20)
+tmResult <- posterior(lda_40)
 tmResult$terms
 tmResult$topics
 
-# 20 topics (probability distributions over |V| = 4278)
+# 40 topics (probability distributions over |V| = 4278)
 
 beta <- tmResult$terms # get beta from results
 dim(beta) # K distributions over nTerms (DTM) terms
@@ -155,4 +156,23 @@ dim(theta) # nDocs(dtm) distributions over K topics
 
 # 10 most likely terms within the term probabilities beta of the inferred topics
 
-terms(lda_20, 10)
+rep_terms <- terms(lda_40, 20)
+
+# 5 most representative documents for each topic
+
+top_n <- 5
+most_rep_docs <- apply(theta, 2, function(x) order(x, decreasing = TRUE)[1:top_n])
+
+rep_docs_list <- list()
+
+for (k in 1:K) {
+  rep_docs_list[[k]] <- data.frame(
+    Topic = k,
+    Document = most_rep_docs[, k],
+    Probability = theta[most_rep_docs[, k], k]
+  )
+}
+
+rep_docs_df <- do.call(rbind, rep_docs_list)
+
+print(rep_docs_df)
